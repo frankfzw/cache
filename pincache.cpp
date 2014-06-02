@@ -23,6 +23,8 @@ KNOB<UINT32> knob_associativity(KNOB_MODE_WRITEONCE, "pintool",
 				"a", "1", "Cache associativity");
 KNOB<UINT32> knob_line_size(KNOB_MODE_WRITEONCE, "pintool",
 			    "l", "64", "Cache line size");
+KNOB<UINT32> knob_replacement(KNOB_MODE_WRITEONCE, "pintool",
+			    "replace", "LRU", "Cache line size");
 
 static avdark_cache_t *avdc = NULL;
 
