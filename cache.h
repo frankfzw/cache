@@ -15,6 +15,10 @@ typedef unsigned avdc_block_size_t;
 typedef unsigned avdc_assoc_t;
 typedef avdc_pa_t avdc_tag_t;
 
+#define LRU 0
+#define RANDOM 1
+#define FIFO 2
+
 /**
  * Memory access type to simulate.
  */
@@ -57,6 +61,12 @@ typedef struct {
 
 		//max accessing count of the cache
 		unsigned long long maxCount;
+		
+		//replacement policy
+		int replacement;
+		
+		//first element of a set
+		int *first;
 
         /**
          * Cache parameters. Use avdc_resize() update them.
@@ -101,7 +111,7 @@ typedef struct {
  * @param assoc Cache associativiy
  */
 avdark_cache_t *avdc_new(avdc_size_t size, avdc_block_size_t block_size,
-			 avdc_assoc_t assoc);
+			 avdc_assoc_t assoc, char* replacement);
 /**
  * Destroy an instance of the cache simulator.
  *

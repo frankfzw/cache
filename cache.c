@@ -11,6 +11,8 @@
 #include <assert.h>
 #include <inttypes.h>
 
+#include <time.h>
+
 
 #define AVDC_MALLOC(nelems, type) malloc(nelems * sizeof(type))
 #define AVDC_FREE(p) free(p)
@@ -102,44 +104,110 @@ avdc_access(avdark_cache_t *self, avdc_pa_t pa, avdc_access_type_t type)
         avdc_tag_t tag = tag_from_pa(self, pa);
         int index = index_from_pa(self, pa);
         int hit = 0;
-		
-	
-		//LRU 
-		self->maxCount ++;
-		unsigned long long minCount = self->maxCount;
-		int kickIndex = -1;
         
-		int i = 0;
-		for (; i < self->assoc; i ++)
-		{
-			int temp = index * self->assoc + i;
-			hit = self->lines[temp].valid && self->lines[temp].tag == tag;
-			
-			if (hit) {
-				self->lines[temp].count = self->maxCount;
-				break;
-			}
-
-
-		}
+        int added = 0;
 		
-		if (!hit) {
-			for (i = 0; i < self->assoc; i ++)
+		self->maxCount ++;
+		
+		int kickIndex = -1;
+		if(self->replacement == LRU)
+		{	
+			//LRU 
+			unsigned long long minCount = self->maxCount;
+		    
+			int i = 0;
+			for (; i < self->assoc; i ++)
 			{
 				int temp = index * self->assoc + i;
-				//avdc_dbg_log(self, "kick: idx: %d, count: %llu\n", temp, self->lines[temp].count);
-				if (self->lines[temp].count < minCount)
+				hit = self->lines[temp].valid && self->lines[temp].tag == tag;
+			
+				if (hit || (self->lines[temp].count == 0)) {
+					self->lines[temp].valid = 1;
+					self->lines[temp].tag = tag;
+					self->lines[temp].count = self->maxCount;
+					added = 1;
+					break;
+				}
+
+
+			}
+		
+			if (!hit && !added) {
+				for (i = 0; i < self->assoc; i ++)
 				{
-					minCount = self->lines[temp].count;
-					kickIndex = temp;
+					int temp = index * self->assoc + i;
+					//avdc_dbg_log(self, "kick: idx: %d, count: %llu\n", temp, self->lines[temp].count);
+					if (self->lines[temp].count < minCount)
+					{
+						minCount = self->lines[temp].count;
+						kickIndex = temp;
+					}
+				}
+				self->lines[kickIndex].valid = 1;
+				self->lines[kickIndex].tag = tag;
+				self->lines[kickIndex].count = self->maxCount;
+			}
+		
+		}
+		else if (self->replacement == RANDOM)
+		{
+			//RANDOM
+			
+			int i = 0;
+			for (; i < self->assoc; i ++)
+			{
+				int temp = index * self->assoc + i;
+				hit = self->lines[temp].valid && self->lines[temp].tag == tag;
+			
+				if (hit || (self->lines[temp].count == 0)) {
+					self->lines[temp].valid = 1;
+					self->lines[temp].tag = tag;
+					self->lines[temp].count = self->maxCount;
+					added = 1;
+					break;
 				}
 			}
-			self->lines[kickIndex].valid = 1;
-			self->lines[kickIndex].tag = tag;
-			self->lines[kickIndex].count = self->maxCount;
+			
+			if (!hit && !added)
+			{
+				kickIndex = rand() % self->assoc + index * self->assoc;
+				self->lines[kickIndex].valid = 1;
+				self->lines[kickIndex].tag = tag;
+				self->lines[kickIndex].count = self->maxCount;
+			}
 		}
-		
-
+		else if (self->replacement == FIFO)
+		{
+			//FIFO
+			int i = 0;
+			for (; i < self->assoc; i ++)
+			{
+				int temp = index * self->assoc + i;
+				hit = self->lines[temp].valid && self->lines[temp].tag == tag;
+			
+				if (hit || (self->lines[temp].count == 0)) {
+					self->lines[temp].valid = 1;
+					self->lines[temp].tag = tag;
+					self->lines[temp].count = self->maxCount;
+					added = 1;
+					break;
+				}
+			}
+			
+			if (!hit && !added)
+			{
+				kickIndex = self->first[index];
+				self->first[index] = (kickIndex + 1) % self->assoc;
+				kickIndex = index * self->assoc + kickIndex;
+				self->lines[kickIndex].valid = 1;
+				self->lines[kickIndex].tag = tag;
+				self->lines[kickIndex].count = self->maxCount;
+			}
+		}
+		else
+		{
+			avdc_dbg_log(self, "impossible replacement policy: %d\n", self->replacement);
+		}
 		
         switch (type) {
         case AVDC_READ: /* Read accesses */
@@ -177,6 +245,9 @@ avdc_flush_cache(avdark_cache_t *self)
 				self->lines[temp].count = 0;
 			}
         }
+        
+	self->maxCount = 0;
+	memset(self->first, 0, sizeof(self->first));
 }
 
 
@@ -213,6 +284,10 @@ avdc_resize(avdark_cache_t *self,
 
 		//init the max accessing count to 0
 		self->maxCount = 0;
+		
+		//init the first element queue
+		self->first = (int *)malloc(self->number_of_sets * sizeof(int));
+		memset(self->first, 0, sizeof(self->first));
 
         /* (Re-)Allocate space for the tags array */
         if (self->lines)
@@ -262,7 +337,7 @@ avdc_reset_statistics(avdark_cache_t *self)
 
 avdark_cache_t *
 avdc_new(avdc_size_t size, avdc_block_size_t block_size,
-         avdc_assoc_t assoc)
+         avdc_assoc_t assoc, char *replacement)
 {
         avdark_cache_t *self;
 
@@ -271,6 +346,25 @@ avdc_new(avdc_size_t size, avdc_block_size_t block_size,
         memset(self, 0, sizeof(*self));
         self->dbg = 0;
         //self->dbg = 1;
+        self->maxCount = 0;
+        if ((strcmp(replacement, "LRU") == 0))
+       	{
+       		self->replacement = LRU;
+       	}
+       	else if(strcmp(replacement, "RANDOM") == 0)
+       	{
+       		srand(time(NULL));
+       		self->replacement = RANDOM;
+       	}
+       	else if((strcmp(replacement, "FIFO") == 0))
+       	{
+       		self->replacement = FIFO;
+       	}
+        else	
+        {
+       		AVDC_FREE(self);
+        	return NULL;
+        }
         
         //avdc_dbg_log(self, "avdc new\n");
 

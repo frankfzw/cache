@@ -11,6 +11,8 @@
 #include <assert.h>
 #include <inttypes.h>
 
+#include <time.h>
+
 
 #define AVDC_MALLOC(nelems, type) malloc(nelems * sizeof(type))
 #define AVDC_FREE(p) free(p)
@@ -21,7 +23,8 @@
  * HINT: You will probably need to change this structure
  */
 struct avdc_cache_line {
-        avdc_tag_t tag;
+	unsigned long long count;
+	avdc_tag_t tag;
         int        valid;
 };
 
@@ -100,26 +103,124 @@ avdc_access(avdark_cache_t *self, avdc_pa_t pa, avdc_access_type_t type)
         /* HINT: You will need to update this function */
         avdc_tag_t tag = tag_from_pa(self, pa);
         int index = index_from_pa(self, pa);
-        int hit;
+        int hit = 0;
+        
+        int added = 0;
+		
+		self->maxCount ++;
+		
+		int kickIndex = -1;
+		if(self->replacement == LRU)
+		{	
+			//LRU 
+			unsigned long long minCount = self->maxCount;
+		    
+			int i = 0;
+			for (; i < self->assoc; i ++)
+			{
+				int temp = index * self->assoc + i;
+				hit = self->lines[temp].valid && self->lines[temp].tag == tag;
+			
+				if (hit || (self->lines[temp].count == 0)) {
+					self->lines[temp].valid = 1;
+					self->lines[temp].tag = tag;
+					self->lines[temp].count = self->maxCount;
+					added = 1;
+					break;
+				}
 
-        hit = self->lines[index].valid && self->lines[index].tag == tag;
-        if (!hit) {
-                self->lines[index].valid = 1;
-                self->lines[index].tag = tag;
-        }
 
+			}
+		
+			if (!hit && !added) {
+				for (i = 0; i < self->assoc; i ++)
+				{
+					int temp = index * self->assoc + i;
+					//avdc_dbg_log(self, "kick: idx: %d, count: %llu\n", temp, self->lines[temp].count);
+					if (self->lines[temp].count < minCount)
+					{
+						minCount = self->lines[temp].count;
+						kickIndex = temp;
+					}
+				}
+				self->lines[kickIndex].valid = 1;
+				self->lines[kickIndex].tag = tag;
+				self->lines[kickIndex].count = self->maxCount;
+			}
+		
+		}
+		else if (self->replacement == RANDOM)
+		{
+			//RANDOM
+			
+			int i = 0;
+			for (; i < self->assoc; i ++)
+			{
+				int temp = index * self->assoc + i;
+				hit = self->lines[temp].valid && self->lines[temp].tag == tag;
+			
+				if (hit || (self->lines[temp].count == 0)) {
+					self->lines[temp].valid = 1;
+					self->lines[temp].tag = tag;
+					self->lines[temp].count = self->maxCount;
+					added = 1;
+					break;
+				}
+			}
+			
+			if (!hit && !added)
+			{
+				kickIndex = rand() % self->assoc + index * self->assoc;
+				self->lines[kickIndex].valid = 1;
+				self->lines[kickIndex].tag = tag;
+				self->lines[kickIndex].count = self->maxCount;
+			}
+		}
+		else if (self->replacement == FIFO)
+		{
+			//FIFO
+			int i = 0;
+			for (; i < self->assoc; i ++)
+			{
+				int temp = index * self->assoc + i;
+				hit = self->lines[temp].valid && self->lines[temp].tag == tag;
+			
+				if (hit || (self->lines[temp].count == 0)) {
+					self->lines[temp].valid = 1;
+					self->lines[temp].tag = tag;
+					self->lines[temp].count = self->maxCount;
+					added = 1;
+					break;
+				}
+			}
+			
+			if (!hit && !added)
+			{
+				kickIndex = self->first[index];
+				self->first[index] = (kickIndex + 1) % self->assoc;
+				kickIndex = index * self->assoc + kickIndex;
+				self->lines[kickIndex].valid = 1;
+				self->lines[kickIndex].tag = tag;
+				self->lines[kickIndex].count = self->maxCount;
+			}
+		}
+		else
+		{
+			avdc_dbg_log(self, "impossible replacement policy: %d\n", self->replacement);
+		}
+		
         switch (type) {
         case AVDC_READ: /* Read accesses */
-                avdc_dbg_log(self, "read: pa: 0x%.16lx, tag: 0x%.16lx, index: %d, hit: %d\n",
-                             (unsigned long)pa, (unsigned long)tag, index, hit);
+                avdc_dbg_log(self, "read: pa: 0x%.16lx, tag: 0x%.16lx, index: %d, hit: %d, pos: %d , count: %llu\n",
+                             (unsigned long)pa, (unsigned long)tag, index, hit, kickIndex, self->maxCount);
                 self->stat_data_read += 1;
                 if (!hit)
                         self->stat_data_read_miss += 1;
                 break;
 
         case AVDC_WRITE: /* Write accesses */
-                avdc_dbg_log(self, "write: pa: 0x%.16lx, tag: 0x%.16lx, index: %d, hit: %d\n",
-                             (unsigned long)pa, (unsigned long)tag, index, hit);
+                avdc_dbg_log(self, "write: pa: 0x%.16lx, tag: 0x%.16lx, index: %d, hit: %d, pos: %d, count: %llu, write count: %d\n",
+                             (unsigned long)pa, (unsigned long)tag, index, hit, kickIndex, self->maxCount, self->stat_data_write);
                 self->stat_data_write += 1;
                 if (!hit)
                         self->stat_data_write_miss += 1;
@@ -133,9 +234,20 @@ avdc_flush_cache(avdark_cache_t *self)
 	int i;
         /* HINT: You will need to update this function */
         for (i = 0; i < self->number_of_sets; i++) {
-                self->lines[i].valid = 0;
-                self->lines[i].tag = 0;
+        	int j = 0;
+        	for (; j < self->assoc; j ++)
+        	{
+        		int temp = i * self->assoc + j;
+                self->lines[temp].valid = 0;
+                self->lines[temp].tag = 0;
+
+				//added: flush count
+				self->lines[temp].count = 0;
+			}
         }
+        
+	self->maxCount = 0;
+	memset(self->first, 0, sizeof(self->first));
 }
 
 
@@ -157,6 +269,8 @@ avdc_resize(avdark_cache_t *self,
                 return 0;
         }
 
+		avdc_dbg_log(self, "avdc resize: size %ld, block_szie %ld, assoc %d\n", (unsigned long)size, (unsigned long)block_size, (int)assoc);		
+		
         /* Update the stored parameters */
         self->size = size;
         self->block_size = block_size;
@@ -167,13 +281,21 @@ avdc_resize(avdark_cache_t *self,
         self->block_size_log2 = log2_int32(self->block_size);
         self->tag_shift = self->block_size_log2 + log2_int32(self->number_of_sets);
 
+
+		//init the max accessing count to 0
+		self->maxCount = 0;
+		
+		//init the first element queue
+		self->first = (int *)malloc(self->number_of_sets * sizeof(int));
+		memset(self->first, 0, sizeof(self->first));
+
         /* (Re-)Allocate space for the tags array */
         if (self->lines)
                 AVDC_FREE(self->lines);
         /* HINT: If you change this, you may have to update
          * avdc_delete() to reflect changes to how thie self->lines
          * array is allocated. */
-        self->lines = AVDC_MALLOC(self->number_of_sets, avdc_cache_line_t);
+        self->lines = AVDC_MALLOC(self->number_of_sets * self->assoc, avdc_cache_line_t);
 
         /* Flush the cache, this initializes the tag array to a known state */
         avdc_flush_cache(self);
@@ -215,7 +337,7 @@ avdc_reset_statistics(avdark_cache_t *self)
 
 avdark_cache_t *
 avdc_new(avdc_size_t size, avdc_block_size_t block_size,
-         avdc_assoc_t assoc)
+         avdc_assoc_t assoc, char *replacement)
 {
         avdark_cache_t *self;
 
@@ -223,6 +345,28 @@ avdc_new(avdc_size_t size, avdc_block_size_t block_size,
 
         memset(self, 0, sizeof(*self));
         self->dbg = 0;
+        //self->dbg = 1;
+        self->maxCount = 0;
+        if ((strcmp(replacement, "LRU") == 0))
+       	{
+       		self->replacement = LRU;
+       	}
+       	else if(strcmp(replacement, "RANDOM") == 0)
+       	{
+       		srand(time(NULL));
+       		self->replacement = RANDOM;
+       	}
+       	else if((strcmp(replacement, "FIFO") == 0))
+       	{
+       		self->replacement = FIFO;
+       	}
+        else	
+        {
+       		AVDC_FREE(self);
+        	return NULL;
+        }
+        
+        //avdc_dbg_log(self, "avdc new\n");
 
         if (!avdc_resize(self, size, block_size, assoc)) {
                 AVDC_FREE(self);

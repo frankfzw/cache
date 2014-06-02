@@ -1,12 +1,5 @@
 /**
  * Cache simulation using a functional system simulator.
- *
- * Course: Advanced Computer Architecture, Uppsala University
- * Course Part: Lab assignment 1
- *
- * Author: Andreas Sandberg <andreas.sandberg@it.uu.se>
- *
- * $Id: cache.h 13 2011-08-24 09:50:25Z ansan501 $
  */
 
 #ifndef AVDARK_CACHE_H
@@ -21,6 +14,10 @@ typedef unsigned avdc_size_t;
 typedef unsigned avdc_block_size_t;
 typedef unsigned avdc_assoc_t;
 typedef avdc_pa_t avdc_tag_t;
+
+#define LRU 0
+#define RANDOM 1
+#define FIFO 2
 
 /**
  * Memory access type to simulate.
@@ -60,6 +57,16 @@ typedef struct {
          * is stored
          */
         avdc_cache_line_t *lines;
+
+
+		//max accessing count of the cache
+		unsigned long long maxCount;
+		
+		//replacement policy
+		int replacement;
+		
+		//first element of a set
+		int *first;
 
         /**
          * Cache parameters. Use avdc_resize() update them.
@@ -104,7 +111,7 @@ typedef struct {
  * @param assoc Cache associativiy
  */
 avdark_cache_t *avdc_new(avdc_size_t size, avdc_block_size_t block_size,
-			 avdc_assoc_t assoc);
+			 avdc_assoc_t assoc, char* replacement);
 /**
  * Destroy an instance of the cache simulator.
  *
