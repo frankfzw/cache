@@ -21,7 +21,8 @@
  * HINT: You will probably need to change this structure
  */
 struct avdc_cache_line {
-        avdc_tag_t tag;
+		unsigned long long count;
+		avdc_tag_t tag;
         int        valid;
 };
 
@@ -101,13 +102,39 @@ avdc_access(avdark_cache_t *self, avdc_pa_t pa, avdc_access_type_t type)
         avdc_tag_t tag = tag_from_pa(self, pa);
         int index = index_from_pa(self, pa);
         int hit;
+		
+	
+		//LRU 
+		self->maxCount ++;
+		unsigned long long minCount = self->maxCount;
+		int kickIndex = 0;
+        
+		int i = 0;
+		for (; i < self->assoc; i ++)
+		{
+			int temp = index * self->assoc + i;
+			hit = self->lines[temp].valid && self->lines[temp].tag == tag;
+			
+			if (hit) {
+				self->lines[temp].count = self->maxCount;
+				break;
+			}
 
-        hit = self->lines[index].valid && self->lines[index].tag == tag;
-        if (!hit) {
-                self->lines[index].valid = 1;
-                self->lines[index].tag = tag;
-        }
+			if (self->lines[temp].count < minCount)
+			{
+				minCount = self->lines[temp].count;
+				kickIndex = temp;
+			}
 
+		}
+		
+		if (!hit) {
+			self->lines[kickIndex].valid = 1;
+			self->lines[kickIndex].tag = tag;
+			self->lines[kickIndex].count = self->maxCount;
+		}
+
+		
         switch (type) {
         case AVDC_READ: /* Read accesses */
                 avdc_dbg_log(self, "read: pa: 0x%.16lx, tag: 0x%.16lx, index: %d, hit: %d\n",
@@ -135,6 +162,9 @@ avdc_flush_cache(avdark_cache_t *self)
         for (i = 0; i < self->number_of_sets; i++) {
                 self->lines[i].valid = 0;
                 self->lines[i].tag = 0;
+
+				//added: flush count
+				self->lines[i].count = 0;
         }
 }
 
@@ -166,6 +196,10 @@ avdc_resize(avdark_cache_t *self,
         self->number_of_sets = (self->size / self->block_size) / self->assoc;
         self->block_size_log2 = log2_int32(self->block_size);
         self->tag_shift = self->block_size_log2 + log2_int32(self->number_of_sets);
+
+
+		//init the max accessing count to 0
+		self->maxCount = 0;
 
         /* (Re-)Allocate space for the tags array */
         if (self->lines)

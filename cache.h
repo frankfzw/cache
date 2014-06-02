@@ -54,6 +54,10 @@ typedef struct {
          */
         avdc_cache_line_t *lines;
 
+
+		//max accessing count of the cache
+		unsigned long long maxCount;
+
         /**
          * Cache parameters. Use avdc_resize() update them.
          *
