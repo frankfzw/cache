@@ -21,8 +21,8 @@
  * HINT: You will probably need to change this structure
  */
 struct avdc_cache_line {
-		unsigned long long count;
-		avdc_tag_t tag;
+	unsigned long long count;
+	avdc_tag_t tag;
         int        valid;
 };
 
@@ -101,13 +101,13 @@ avdc_access(avdark_cache_t *self, avdc_pa_t pa, avdc_access_type_t type)
         /* HINT: You will need to update this function */
         avdc_tag_t tag = tag_from_pa(self, pa);
         int index = index_from_pa(self, pa);
-        int hit;
+        int hit = 0;
 		
 	
 		//LRU 
 		self->maxCount ++;
 		unsigned long long minCount = self->maxCount;
-		int kickIndex = 0;
+		int kickIndex = -1;
         
 		int i = 0;
 		for (; i < self->assoc; i ++)
@@ -120,33 +120,39 @@ avdc_access(avdark_cache_t *self, avdc_pa_t pa, avdc_access_type_t type)
 				break;
 			}
 
-			if (self->lines[temp].count < minCount)
-			{
-				minCount = self->lines[temp].count;
-				kickIndex = temp;
-			}
 
 		}
 		
 		if (!hit) {
+			for (i = 0; i < self->assoc; i ++)
+			{
+				int temp = index * self->assoc + i;
+				//avdc_dbg_log(self, "kick: idx: %d, count: %llu\n", temp, self->lines[temp].count);
+				if (self->lines[temp].count < minCount)
+				{
+					minCount = self->lines[temp].count;
+					kickIndex = temp;
+				}
+			}
 			self->lines[kickIndex].valid = 1;
 			self->lines[kickIndex].tag = tag;
 			self->lines[kickIndex].count = self->maxCount;
 		}
+		
 
 		
         switch (type) {
         case AVDC_READ: /* Read accesses */
-                avdc_dbg_log(self, "read: pa: 0x%.16lx, tag: 0x%.16lx, index: %d, hit: %d\n",
-                             (unsigned long)pa, (unsigned long)tag, index, hit);
+                avdc_dbg_log(self, "read: pa: 0x%.16lx, tag: 0x%.16lx, index: %d, hit: %d, pos: %d , count: %llu\n",
+                             (unsigned long)pa, (unsigned long)tag, index, hit, kickIndex, self->maxCount);
                 self->stat_data_read += 1;
                 if (!hit)
                         self->stat_data_read_miss += 1;
                 break;
 
         case AVDC_WRITE: /* Write accesses */
-                avdc_dbg_log(self, "write: pa: 0x%.16lx, tag: 0x%.16lx, index: %d, hit: %d\n",
-                             (unsigned long)pa, (unsigned long)tag, index, hit);
+                avdc_dbg_log(self, "write: pa: 0x%.16lx, tag: 0x%.16lx, index: %d, hit: %d, pos: %d, count: %llu, write count: %d\n",
+                             (unsigned long)pa, (unsigned long)tag, index, hit, kickIndex, self->maxCount, self->stat_data_write);
                 self->stat_data_write += 1;
                 if (!hit)
                         self->stat_data_write_miss += 1;
@@ -160,11 +166,16 @@ avdc_flush_cache(avdark_cache_t *self)
 	int i;
         /* HINT: You will need to update this function */
         for (i = 0; i < self->number_of_sets; i++) {
-                self->lines[i].valid = 0;
-                self->lines[i].tag = 0;
+        	int j = 0;
+        	for (; j < self->assoc; j ++)
+        	{
+        		int temp = i * self->assoc + j;
+                self->lines[temp].valid = 0;
+                self->lines[temp].tag = 0;
 
 				//added: flush count
-				self->lines[i].count = 0;
+				self->lines[temp].count = 0;
+			}
         }
 }
 
@@ -187,6 +198,8 @@ avdc_resize(avdark_cache_t *self,
                 return 0;
         }
 
+		avdc_dbg_log(self, "avdc resize: size %ld, block_szie %ld, assoc %d\n", (unsigned long)size, (unsigned long)block_size, (int)assoc);		
+		
         /* Update the stored parameters */
         self->size = size;
         self->block_size = block_size;
@@ -207,7 +220,7 @@ avdc_resize(avdark_cache_t *self,
         /* HINT: If you change this, you may have to update
          * avdc_delete() to reflect changes to how thie self->lines
          * array is allocated. */
-        self->lines = AVDC_MALLOC(self->number_of_sets, avdc_cache_line_t);
+        self->lines = AVDC_MALLOC(self->number_of_sets * self->assoc, avdc_cache_line_t);
 
         /* Flush the cache, this initializes the tag array to a known state */
         avdc_flush_cache(self);
@@ -256,7 +269,10 @@ avdc_new(avdc_size_t size, avdc_block_size_t block_size,
         self = AVDC_MALLOC(1, avdark_cache_t);
 
         memset(self, 0, sizeof(*self));
-        self->dbg = 0;
+        //self->dbg = 0;
+        self->dbg = 1;
+        
+        //avdc_dbg_log(self, "avdc new\n");
 
         if (!avdc_resize(self, size, block_size, assoc)) {
                 AVDC_FREE(self);
