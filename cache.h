@@ -67,7 +67,9 @@ typedef struct {
 		
 		//first element of a set
 		int *first;
-
+		
+		//the victim pa
+		avdc_pa_t victim;
         /**
          * Cache parameters. Use avdc_resize() update them.
          *
@@ -163,6 +165,19 @@ void avdc_flush_cache(avdark_cache_t *self);
  * @param type Access type
  */
 void avdc_access(avdark_cache_t *self, avdc_pa_t pa, avdc_access_type_t type);
+
+/*
+*find out if the pa wa in the cache
+*return 1 if in
+*otherwise return 0
+*/
+
+int avdc_fetch(avdark_cache_t *self, avdc_pa_t pa);
+
+/*
+*invalid the cache of pa
+*/
+void avdc_invalid(avdark_cache_t *self, avdc_pa_t pa);
 
 /**
  * Reset cache statistics

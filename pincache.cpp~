@@ -20,8 +20,10 @@ extern "C" {
 KNOB<string> knob_output(KNOB_MODE_WRITEONCE,    "pintool",
                          "o", "cache.out", "specify log file name");
 
-KNOB<UINT32> knob_size(KNOB_MODE_WRITEONCE, "pintool",
-		       "s", "8388608", "Cache size (bytes)");
+KNOB<UINT32> knob_l1_size(KNOB_MODE_WRITEONCE, "pintool",
+		       "s1", "8388608", "L1 Cache size (bytes)");
+KNOB<UINT32> knob_l2_size(KNOB_MODE_WRITEONCE, "pintool",
+		       "s2", "8388608", "L2 Cache size (bytes)");
 KNOB<UINT32> knob_associativity(KNOB_MODE_WRITEONCE, "pintool",
 				"a", "1", "Cache associativity");
 KNOB<UINT32> knob_line_size(KNOB_MODE_WRITEONCE, "pintool",
@@ -29,7 +31,13 @@ KNOB<UINT32> knob_line_size(KNOB_MODE_WRITEONCE, "pintool",
 KNOB<string> knob_replacement(KNOB_MODE_WRITEONCE, "pintool",
 			    "replace", "LRU", "Cache replacement policy");
 
-static avdark_cache_t *avdc = NULL;
+static avdark_cache_t *avdc1 = NULL;
+static avdark_cache_t *avdc2 = NULL;
+
+static int total_read = 0;
+static int total_read_miss = 0;
+static int total_write = 0;
+static int total_write_miss = 0;
 
 /**
  * Memory access callback. Will be called for every memory access
@@ -41,7 +49,52 @@ simulate_access(VOID *addr, UINT32 access_type)
 
         /* NOTE: We deliberately ignore the fact that addr may
          * straddle multiple cache lines */
-        avdc_access(avdc, (avdc_pa_t)addr, (avdc_access_type_t)access_type);
+        //avdc_access(avdc, (avdc_pa_t)addr, (avdc_access_type_t)access_type);
+        
+        //modified 2-level-cache
+        avdc_pa_t pa = (avdc_pa_t)addr;
+        avdc_access_type_t type = (avdc_access_type_t)access_type;
+        
+        int hit1, hit2 = 0;
+        
+        
+        hit1 = avdc_fetch(avdc1, pa);
+        if (hit1)
+        {
+        	avdc_access(avdc1, pa, type);
+        }
+        else 
+        {
+        	hit2 = avdc_fetch(avdc2, pa);
+        	if (hit2)
+        	{
+        		avdc_access(avdc2, pa, type);
+        		avdc_invalid(avdc2, pa);
+        	}
+        	avdc_access(avdc1, pa, type);
+        	
+        	//add victim
+        	if (avdc1->victim != 0)
+        	{
+        		avdc_access(avdc2, avdc1->victim, type);
+        	}
+        }
+        
+        switch (type)
+        {
+	case AVDC_READ:
+		total_read ++;
+		if ((hit1 | hit2) == 0)
+			total_read_miss ++;
+		break;
+	case AVDC_WRITE:
+		total_write ++;
+		if (!(hit1 && hit2))
+			total_write_miss ++;
+		break;
+        }
+        
+        
 
 }
 
@@ -79,19 +132,43 @@ static VOID
 fini(INT32 code, VOID *v)
 {
         std::ofstream out(knob_output.Value().c_str());
-        int accesses = avdc->stat_data_read + avdc->stat_data_write;
-        int misses = avdc->stat_data_read_miss + avdc->stat_data_write_miss;
+        int accesses1 = avdc1->stat_data_read + avdc1->stat_data_write;
+        int misses1 = avdc1->stat_data_read_miss + avdc1->stat_data_write_miss;
 
-        out << "Cache statistics:" << endl;
-        out << "  Writes: " << avdc->stat_data_write << endl;
-        out << "  Write Misses: " << avdc->stat_data_write_miss << endl;
-        out << "  Reads: " << avdc->stat_data_read << endl;
-        out << "  Read Misses: " << avdc->stat_data_read_miss << endl;
-        out << "  Misses: " << misses << endl;
-        out << "  Accesses: " << accesses << endl;
-        out << "  Miss Ratio: " << ((100.0 * misses) / accesses) << "%" << endl;
+        out << "L1 Cache statistics:" << endl;
+        out << "  Writes: " << avdc1->stat_data_write << endl;
+        out << "  Write Misses: " << avdc1->stat_data_write_miss << endl;
+        out << "  Reads: " << avdc1->stat_data_read << endl;
+        out << "  Read Misses: " << avdc1->stat_data_read_miss << endl;
+        out << "  Misses: " << misses1 << endl;
+        out << "  Accesses: " << accesses1 << endl;
+        out << "  Miss Ratio: " << ((100.0 * misses1) / accesses1) << "%" << endl;
+        
+        int accesses2 = avdc2->stat_data_read + avdc2->stat_data_write;
+        int misses2 = avdc2->stat_data_read_miss + avdc2->stat_data_write_miss;
 
-        avdc_delete(avdc);
+        out << "L2 Cache statistics:" << endl;
+        out << "  Writes: " << avdc2->stat_data_write << endl;
+        out << "  Write Misses: " << avdc2->stat_data_write_miss << endl;
+        out << "  Reads: " << avdc2->stat_data_read << endl;
+        out << "  Read Misses: " << avdc2->stat_data_read_miss << endl;
+        out << "  Misses: " << misses2 << endl;
+        out << "  Accesses: " << accesses2 << endl;
+        out << "  Miss Ratio: " << ((100.0 * misses2) / accesses2) << "%" << endl;
+        
+        int total_access = total_read + total_write;
+        int total_miss = total_read_miss + total_write_miss;
+        out << "2 Level Cache statistics:" << endl;
+        out << "  Writes: " <<total_write << endl;
+        out << "  Write Misses: " << total_write_miss << endl;
+        out << "  Reads: " << total_read << endl;
+        out << "  Read Misses: " << total_read_miss << endl;
+        out << "  Misses: " << total_miss << endl;
+        out << "  Accesses: " << total_access << endl;
+        out << "  Miss Ratio: " << ((100.0 * total_miss) / total_access) << "%" << endl;
+
+        avdc_delete(avdc1);
+        avdc_delete(avdc2);
 }
 
 static int
@@ -113,7 +190,8 @@ int main(int argc, char *argv[])
         if (PIN_Init(argc, argv))
                 return usage();
 
-        avdc_size_t size = knob_size.Value();
+        avdc_size_t l1_size = knob_l1_size.Value();
+        avdc_size_t l2_size = knob_l2_size.Value();
         avdc_block_size_t block_size = knob_line_size.Value();
         avdc_assoc_t assoc = knob_associativity.Value();
         
@@ -122,8 +200,10 @@ int main(int argc, char *argv[])
         char *replacement = (char *) malloc(len * sizeof(char));
         strcpy(replacement, knob_replacement.Value().c_str());
 
-        avdc = avdc_new(size, block_size, assoc, replacement);
-        if (!avdc) {
+        avdc1 = avdc_new(l1_size, block_size, assoc, replacement);
+        avdc2 = avdc_new(l2_size, block_size, assoc, replacement);
+        
+        if (!avdc1 || !avdc2) {
                 cerr << "Failed to initialize the AvDark cache simulator." << endl;
                 return -1;
         }

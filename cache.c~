@@ -53,6 +53,16 @@ index_from_pa(avdark_cache_t *self, avdc_pa_t pa)
 }
 
 /**
+ * Calculate the pa from cache line index and tag.
+ *
+ */
+static inline avdc_pa_t
+pa_from_idx_tag(avdark_cache_t *self, int index, avdc_pa_t tag)
+{
+        return (tag << self->tag_shift) | (index << self->block_size_log2);
+}
+
+/**
  * Computes the log2 of a 32 bit integer value. Used in dc_init
  *
  * Do NOT modify!
@@ -126,6 +136,9 @@ avdc_access(avdark_cache_t *self, avdc_pa_t pa, avdc_access_type_t type)
 					self->lines[temp].tag = tag;
 					self->lines[temp].count = self->maxCount;
 					added = 1;
+					
+					//no victim
+					self->victim = 0;
 					break;
 				}
 
@@ -143,9 +156,13 @@ avdc_access(avdark_cache_t *self, avdc_pa_t pa, avdc_access_type_t type)
 						kickIndex = temp;
 					}
 				}
+				//add victim
+				self->victim = pa_from_idx_tag(self, index, self->lines[kickIndex].tag);
+				
 				self->lines[kickIndex].valid = 1;
 				self->lines[kickIndex].tag = tag;
 				self->lines[kickIndex].count = self->maxCount;
+				
 			}
 		
 		}
@@ -164,6 +181,10 @@ avdc_access(avdark_cache_t *self, avdc_pa_t pa, avdc_access_type_t type)
 					self->lines[temp].tag = tag;
 					self->lines[temp].count = self->maxCount;
 					added = 1;
+					
+					//no victim
+					self->victim = 0;
+					
 					break;
 				}
 			}
@@ -171,6 +192,10 @@ avdc_access(avdark_cache_t *self, avdc_pa_t pa, avdc_access_type_t type)
 			if (!hit && !added)
 			{
 				kickIndex = rand() % self->assoc + index * self->assoc;
+				
+				//add victim
+				self->victim = pa_from_idx_tag(self, index, self->lines[kickIndex].tag);
+				
 				self->lines[kickIndex].valid = 1;
 				self->lines[kickIndex].tag = tag;
 				self->lines[kickIndex].count = self->maxCount;
@@ -190,6 +215,10 @@ avdc_access(avdark_cache_t *self, avdc_pa_t pa, avdc_access_type_t type)
 					self->lines[temp].tag = tag;
 					self->lines[temp].count = self->maxCount;
 					added = 1;
+					
+					//no victim
+					self->victim = 0;
+					
 					break;
 				}
 			}
@@ -199,6 +228,10 @@ avdc_access(avdark_cache_t *self, avdc_pa_t pa, avdc_access_type_t type)
 				kickIndex = self->first[index];
 				self->first[index] = (kickIndex + 1) % self->assoc;
 				kickIndex = index * self->assoc + kickIndex;
+				
+				//add victim
+				self->victim = pa_from_idx_tag(self, index, self->lines[kickIndex].tag);
+				
 				self->lines[kickIndex].valid = 1;
 				self->lines[kickIndex].tag = tag;
 				self->lines[kickIndex].count = self->maxCount;
@@ -226,6 +259,54 @@ avdc_access(avdark_cache_t *self, avdc_pa_t pa, avdc_access_type_t type)
                         self->stat_data_write_miss += 1;
                 break;
         }
+}
+
+int
+avdc_fetch(avdark_cache_t *self, avdc_pa_t pa)
+{
+	avdc_tag_t tag = tag_from_pa(self, pa);
+        int index = index_from_pa(self, pa);
+        int hit = 0;
+        
+        int i = 0;
+	for (; i < self->assoc; i ++)
+	{
+		int temp = index * self->assoc + i;
+		hit = self->lines[temp].valid && self->lines[temp].tag == tag;
+	
+		if (hit) {
+			break;
+		}
+	}
+	
+	return hit;
+}
+
+void
+avdc_invalid(avdark_cache_t *self, avdc_pa_t pa)
+{
+	avdc_tag_t tag = tag_from_pa(self, pa);
+        int index = index_from_pa(self, pa);
+        int hit = 0;
+        
+        int i = 0;
+	for (; i < self->assoc; i ++)
+	{
+		int temp = index * self->assoc + i;
+		hit = self->lines[temp].valid && self->lines[temp].tag == tag;
+	
+		if (hit) {
+			self->lines[temp].valid = 0;
+			self->lines[temp].count = 0;
+			break;
+		}
+	}
+	
+	//invalid a unexisted cache
+	if (hit == 0)
+	{
+		fprintf(stderr, "invalid an unexisted cache\n");
+	}
 }
 
 void
