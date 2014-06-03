@@ -107,13 +107,15 @@ avdc_dbg_log(avdark_cache_t *self, const char *msg, ...)
 }
 
 
-void
+int
 avdc_access(avdark_cache_t *self, avdc_pa_t pa, avdc_access_type_t type)
 {
         /* HINT: You will need to update this function */
         avdc_tag_t tag = tag_from_pa(self, pa);
         int index = index_from_pa(self, pa);
         int hit = 0;
+        
+        self->victim_flag = 0;
         
         int added = 0;
 		
@@ -138,7 +140,7 @@ avdc_access(avdark_cache_t *self, avdc_pa_t pa, avdc_access_type_t type)
 					added = 1;
 					
 					//no victim
-					self->victim = 0;
+					self->victim_flag = 0;
 					break;
 				}
 
@@ -158,6 +160,7 @@ avdc_access(avdark_cache_t *self, avdc_pa_t pa, avdc_access_type_t type)
 				}
 				//add victim
 				self->victim = pa_from_idx_tag(self, index, self->lines[kickIndex].tag);
+				self->victim_flag = 1;
 				
 				self->lines[kickIndex].valid = 1;
 				self->lines[kickIndex].tag = tag;
@@ -183,7 +186,7 @@ avdc_access(avdark_cache_t *self, avdc_pa_t pa, avdc_access_type_t type)
 					added = 1;
 					
 					//no victim
-					self->victim = 0;
+					self->victim_flag = 0;
 					
 					break;
 				}
@@ -195,6 +198,7 @@ avdc_access(avdark_cache_t *self, avdc_pa_t pa, avdc_access_type_t type)
 				
 				//add victim
 				self->victim = pa_from_idx_tag(self, index, self->lines[kickIndex].tag);
+				self->victim_flag = 1;
 				
 				self->lines[kickIndex].valid = 1;
 				self->lines[kickIndex].tag = tag;
@@ -217,7 +221,7 @@ avdc_access(avdark_cache_t *self, avdc_pa_t pa, avdc_access_type_t type)
 					added = 1;
 					
 					//no victim
-					self->victim = 0;
+					self->victim_flag = 0;
 					
 					break;
 				}
@@ -231,6 +235,7 @@ avdc_access(avdark_cache_t *self, avdc_pa_t pa, avdc_access_type_t type)
 				
 				//add victim
 				self->victim = pa_from_idx_tag(self, index, self->lines[kickIndex].tag);
+				self->victim_flag = 1;
 				
 				self->lines[kickIndex].valid = 1;
 				self->lines[kickIndex].tag = tag;
@@ -259,6 +264,8 @@ avdc_access(avdark_cache_t *self, avdc_pa_t pa, avdc_access_type_t type)
                         self->stat_data_write_miss += 1;
                 break;
         }
+        
+        return hit;
 }
 
 int
@@ -280,6 +287,34 @@ avdc_fetch(avdark_cache_t *self, avdc_pa_t pa)
 	}
 	
 	return hit;
+}
+
+int 
+two_level_access(avdark_cache_t *l1, avdark_cache_t *l2, avdc_pa_t pa, avdc_access_type_t type)
+{
+	int hit1, hit2 = 0;
+        int ret = 0;
+        
+        hit1 = avdc_access(l1, pa, type);
+        
+        if (!hit1)
+        {
+        	hit2 = avdc_access(l2, pa, type);
+        	
+        	//keep it exclusive
+        	avdc_invalid(l2, pa);
+        	
+        	//have a victim	
+        	if (l1->victim_flag != 0)
+        	{	
+        		avdc_dbg_log(l1, "victim: %lx\n", (unsigned long)l1->victim);
+        		avdc_access(l2, l1->victim, type);
+        		
+		}
+        }
+        if (hit1 | hit2)
+        	ret = 1;
+        return ret;
 }
 
 void
@@ -326,7 +361,7 @@ avdc_flush_cache(avdark_cache_t *self)
 				self->lines[temp].count = 0;
 			}
         }
-        
+        self->victim_flag = 0;
 	self->maxCount = 0;
 	memset(self->first, 0, sizeof(self->first));
 }
@@ -425,8 +460,8 @@ avdc_new(avdc_size_t size, avdc_block_size_t block_size,
         self = AVDC_MALLOC(1, avdark_cache_t);
 
         memset(self, 0, sizeof(*self));
-        self->dbg = 0;
-        //self->dbg = 1;
+        //self->dbg = 0;
+        self->dbg = 1;
         self->maxCount = 0;
         if ((strcmp(replacement, "LRU") == 0))
        	{

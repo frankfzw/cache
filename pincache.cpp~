@@ -55,42 +55,18 @@ simulate_access(VOID *addr, UINT32 access_type)
         avdc_pa_t pa = (avdc_pa_t)addr;
         avdc_access_type_t type = (avdc_access_type_t)access_type;
         
-        int hit1, hit2 = 0;
+        int hit = two_level_access(avdc1, avdc2, pa, type);
         
-        
-        hit1 = avdc_fetch(avdc1, pa);
-        if (hit1)
-        {
-        	avdc_access(avdc1, pa, type);
-        }
-        else 
-        {
-        	hit2 = avdc_fetch(avdc2, pa);
-        	if (hit2)
-        	{
-        		avdc_access(avdc2, pa, type);
-        		avdc_invalid(avdc2, pa);
-        	}
-        	avdc_access(avdc1, pa, type);
-        	
-        	//add victim
-        	if (avdc1->victim != 0)
-        	{
-        		avdc_access(avdc2, avdc1->victim, type);
-        	}
-        }
         
         switch (type)
         {
 	case AVDC_READ:
 		total_read ++;
-		if ((hit1 | hit2) == 0)
-			total_read_miss ++;
+		total_read_miss += hit;
 		break;
 	case AVDC_WRITE:
 		total_write ++;
-		if (!(hit1 && hit2))
-			total_write_miss ++;
+		total_write_miss += hit;
 		break;
         }
         

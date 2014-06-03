@@ -70,6 +70,10 @@ typedef struct {
 		
 		//the victim pa
 		avdc_pa_t victim;
+		
+		//victim flag
+		int victim_flag;
+		
         /**
          * Cache parameters. Use avdc_resize() update them.
          *
@@ -104,6 +108,8 @@ typedef struct {
         int                stat_data_read_miss;
         /** @} */
 } avdark_cache_t;
+
+
 
 /**
  * Create a new instance of the cache simulator
@@ -164,7 +170,7 @@ void avdc_flush_cache(avdark_cache_t *self);
  * @param pa Physical address to access
  * @param type Access type
  */
-void avdc_access(avdark_cache_t *self, avdc_pa_t pa, avdc_access_type_t type);
+int avdc_access(avdark_cache_t *self, avdc_pa_t pa, avdc_access_type_t type);
 
 /*
 *find out if the pa wa in the cache
@@ -200,6 +206,9 @@ void avdc_print_info(avdark_cache_t *self);
  * @param self Simulator instance
  */
 void avdc_print_internals(avdark_cache_t *self);
+
+
+int two_level_access(avdark_cache_t *l1, avdark_cache_t *l2, avdc_pa_t pa, avdc_access_type_t type);
 
 #endif
 

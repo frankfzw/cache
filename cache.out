@@ -1,24 +1,24 @@
 L1 Cache statistics:
   Writes: 303629
-  Write Misses: 2550
-  Reads: 677604
-  Read Misses: 19849
-  Misses: 22399
-  Accesses: 981233
-  Miss Ratio: 2.28274%
+  Write Misses: 909
+  Reads: 677601
+  Read Misses: 2237
+  Misses: 3146
+  Accesses: 981230
+  Miss Ratio: 0.320618%
 L2 Cache statistics:
-  Writes: 3669
-  Write Misses: 2527
-  Reads: 32779
-  Read Misses: 19808
-  Misses: 22335
-  Accesses: 36448
-  Miss Ratio: 61.2791%
+  Writes: 909
+  Write Misses: 909
+  Reads: 2237
+  Read Misses: 2237
+  Misses: 3146
+  Accesses: 3146
+  Miss Ratio: 100%
 2 Level Cache statistics:
   Writes: 303629
-  Write Misses: 1408
-  Reads: 677604
-  Read Misses: 6878
-  Misses: 8286
-  Accesses: 981233
-  Miss Ratio: 0.844448%
+  Write Misses: 909
+  Reads: 677601
+  Read Misses: 2237
+  Misses: 3146
+  Accesses: 981230
+  Miss Ratio: 0.320618%
